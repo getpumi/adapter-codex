@@ -137,7 +137,12 @@ func runCodex(ctx context.Context, cfg Config, inv *harnessv1.Invocation, closed
 	// from two goroutines of the command.
 	stderr = &syncWriter{w: stderr}
 	env := Env(os.Environ(), inv.GetGateway(), d.codexHome)
-	args, err := Args(inv, Files{Hook: hookCommand(self, d.policy), Schema: d.schema}, os.Environ())
+	install, err := InstallDirectory(path)
+	if err != nil {
+		logf(stderr, "cannot find codex's install: %v", err)
+		return failed(0), nil
+	}
+	args, err := Args(inv, Files{Hook: hookCommand(self, d.policy), Schema: d.schema, Codex: install}, os.Environ())
 	if err != nil {
 		return nil, err
 	}

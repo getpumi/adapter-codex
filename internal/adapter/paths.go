@@ -72,13 +72,20 @@ func matchGlob(glob, segs []string) bool {
 // exact path or a path that ends with "/**" for write access, and refuses
 // other globs ("filesystem glob path `docs/*.txt` only supports `deny`
 // access"), so a glob with a pattern before its end becomes the directory
-// of its literal segments, with all below it. The hook still allows only
-// what the glob matches for codex's edits, and the runner's confinement
-// check covers what the commands write (decision 0159). The workspace
-// itself is ".".
+// of its literal segments, with all below it. It also takes a writable path
+// as a directory: with a path that names an existing file it fails before
+// the command runs ("bwrap: Can't mkdir parents for src/a.txt/.git: Not a
+// directory"), and it does not let a command create a file that the path
+// names, so a write path with no pattern, which names one file, becomes its
+// directory, with all below it. The hook still allows only what the glob
+// matches for codex's edits, and the runner's confinement check covers
+// what the commands write (decision 0159). The workspace itself is ".".
 func sandboxWritePath(glob string) string {
 	segs := strings.Split(path.Clean(glob), "/")
 	for i, s := range segs {
+		if s == "**" && i == len(segs)-1 {
+			break
+		}
 		if !strings.ContainsAny(s, `*?[\`) {
 			continue
 		}
@@ -87,5 +94,14 @@ func sandboxWritePath(glob string) string {
 		}
 		return strings.Join(segs[:i], "/") + "/**"
 	}
-	return strings.Join(segs, "/")
+	if segs[len(segs)-1] == "**" {
+		if len(segs) == 1 {
+			return "."
+		}
+		return strings.Join(segs, "/")
+	}
+	if len(segs) == 1 {
+		return "."
+	}
+	return strings.Join(segs[:len(segs)-1], "/") + "/**"
 }

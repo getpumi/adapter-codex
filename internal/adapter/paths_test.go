@@ -60,7 +60,9 @@ func TestSandboxWritePath(t *testing.T) {
 	tests := map[string]string{
 		"src/**":     "src/**",
 		"**":         ".",
-		"README.md":  "README.md",
+		"README.md":  ".",
+		"src/a.txt":  "src/**",
+		"a/b/c.go":   "a/b/**",
 		"docs/*.md":  "docs/**",
 		"**/*.go":    ".",
 		"a/b/**/*.c": "a/b/**",

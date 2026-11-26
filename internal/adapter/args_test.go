@@ -5,6 +5,8 @@ package adapter
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -38,7 +40,7 @@ func configOf(args []string) []string {
 
 func TestArgsSignIn(t *testing.T) {
 	inv := invocation(caps(harnessv1.Capabilities_TOOL_KIND_READ))
-	args, err := Args(inv, Files{Hook: "/bin/adapter-codex hook /run/policy.json", Schema: "/run/schema.json"}, []string{"OPENAI_BASE_URL=http://proxy/v1"})
+	args, err := Args(inv, Files{Hook: "/bin/adapter-codex hook /run/policy.json", Schema: "/run/schema.json", Codex: "/opt/codex"}, []string{"OPENAI_BASE_URL=http://proxy/v1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +51,7 @@ func TestArgsSignIn(t *testing.T) {
 	config := configOf(args)
 	for _, c := range []string{
 		`openai_base_url="http://proxy/v1"`,
+		`permissions.pumi.filesystem={":minimal"="read","/opt/codex"="read",":workspace_roots"={"."="read"}}`,
 		`web_search="disabled"`,
 		`approval_policy="never"`,
 		`hooks.PreToolUse=[{matcher="",hooks=[{type="command",command="/bin/adapter-codex hook /run/policy.json",timeout=60}]}]`,
@@ -121,10 +124,55 @@ func TestArgsRefusesInvocation(t *testing.T) {
 	}
 }
 
+// TestTranslateWithoutAnInstallDirectory: with no directory of codex's
+// install, the profile names none.
+func TestTranslateWithoutAnInstallDirectory(t *testing.T) {
+	got := Translate(caps(harnessv1.Capabilities_TOOL_KIND_READ), "")
+	if want := `permissions.pumi.filesystem={":minimal"="read",":workspace_roots"={"."="read"}}`; got[1] != want {
+		t.Errorf("Translate() profile = %q, want %q", got[1], want)
+	}
+}
+
+// TestInstallDirectory: the directory of codex's install is the directory
+// of the file that the program's path resolves to, or the directory above
+// it when that is a bin directory, as in the npm package's native build.
+func TestInstallDirectory(t *testing.T) {
+	top := t.TempDir()
+	for _, d := range []string{"lib/codex/bin", "usr/bin", "plain"} {
+		if err := os.MkdirAll(filepath.Join(top, d), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"lib/codex/bin/codex", "plain/codex"} {
+		if err := os.WriteFile(filepath.Join(top, f), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(top, "lib/codex/bin/codex"), filepath.Join(top, "usr/bin/codex")); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]string{
+		"usr/bin/codex":       "lib/codex",
+		"lib/codex/bin/codex": "lib/codex",
+		"plain/codex":         "plain",
+	} {
+		got, err := InstallDirectory(filepath.Join(top, path))
+		if err != nil {
+			t.Fatalf("InstallDirectory(%s): %v", path, err)
+		}
+		if got != filepath.Join(top, want) {
+			t.Errorf("InstallDirectory(%s) = %s, want %s", path, got, filepath.Join(top, want))
+		}
+	}
+	if _, err := InstallDirectory(filepath.Join(top, "missing")); err == nil {
+		t.Error("InstallDirectory of a missing file succeeded, want an error")
+	}
+}
+
 func TestTranslate(t *testing.T) {
 	edit, run, read := harnessv1.Capabilities_TOOL_KIND_EDIT, harnessv1.Capabilities_TOOL_KIND_RUN_COMMANDS, harnessv1.Capabilities_TOOL_KIND_READ
 	profile := func(workspace string) string {
-		return `permissions.pumi.filesystem={":minimal"="read",":workspace_roots"={` + workspace + `}}`
+		return `permissions.pumi.filesystem={":minimal"="read","/opt/codex"="read",":workspace_roots"={` + workspace + `}}`
 	}
 	for name, tc := range map[string]struct {
 		caps  *harnessv1.Capabilities
@@ -132,13 +180,13 @@ func TestTranslate(t *testing.T) {
 		shell bool
 	}{
 		"read only":      {caps(read, "src/**"), profile(`"."="read"`), false},
-		"edit":           {caps(read, edit, "src/**", "docs/*.md", "go.mod"), profile(`"."="read","docs/**"="write","go.mod"="write","src/**"="write"`), true},
+		"edit":           {caps(read, edit, "src/**", "docs/*.md", "go.mod"), profile(`"."="write","docs/**"="write","src/**"="write"`), true},
 		"run":            {caps(run, "out/**"), profile(`"."="read","out/**"="write"`), true},
 		"leading glob":   {caps(edit, "*.go"), profile(`"."="write"`), true},
 		"no write paths": {caps(edit), profile(`"."="read"`), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Translate(tc.caps)
+			got := Translate(tc.caps, "/opt/codex")
 			want := []string{
 				`default_permissions="pumi"`,
 				tc.want,

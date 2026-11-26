@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -38,6 +39,9 @@ type Files struct {
 	Hook string
 	// Schema is the file of the output's JSON Schema; empty for none.
 	Schema string
+	// Codex is the directory of codex's install, which codex's sandbox
+	// must read (InstallDirectory); empty for none.
+	Codex string
 }
 
 // Args returns the arguments of codex for an invocation. codex exec reads
@@ -83,7 +87,7 @@ func Args(inv *harnessv1.Invocation, files Files, environ []string) ([]string, e
 	if files.Schema != "" {
 		args = append(args, "--output-schema", files.Schema)
 	}
-	config := Translate(inv.GetCapabilities())
+	config := Translate(inv.GetCapabilities(), files.Codex)
 	config = append(config, hookConfig(files.Hook), "web_search="+tomlString("disabled"))
 	config = append(config, quiet...)
 	if gw := inv.GetGateway(); gw != nil {
@@ -185,7 +189,11 @@ func hookConfig(command string) string {
 // refuses (Hook), and the runner's confinement check covers the rest.
 //
 //   - The profile lets codex and its commands read the system's minimal
-//     files and the workspace, and nothing else. Codex itself reads the
+//     files, codex's own install, codexDir, and the workspace, and nothing
+//     else. Codex starts itself again inside its sandbox from its own
+//     path, which failed with "bwrap: execvp .../codex/bin/codex: No such
+//     file or directory" for a codex installed in the person's home, where
+//     the minimal files do not reach. Codex itself reads the
 //     workspace under the profile, such as its AGENTS.md, and stops when
 //     it cannot, so the profile cannot leave reading out; codex has no tool
 //     that reads a file other than its commands and view_image, which the
@@ -199,7 +207,7 @@ func hookConfig(command string) string {
 //   - Codex's shell tool is offered when the list has the kind that runs
 //     commands, or the edit kind, because with a model that codex has no
 //     metadata for its edits are apply_patch commands.
-func Translate(caps *harnessv1.Capabilities) []string {
+func Translate(caps *harnessv1.Capabilities, codexDir string) []string {
 	p := NewPolicy("", caps)
 	workspace := map[string]string{".": "read"}
 	if p.Edit || p.Run {
@@ -216,8 +224,11 @@ func Translate(caps *harnessv1.Capabilities) []string {
 	for _, k := range keys {
 		entries = append(entries, tomlString(k)+"="+tomlString(workspace[k]))
 	}
-	filesystem := "{" + tomlString(":minimal") + "=" + tomlString("read") + "," +
-		tomlString(":workspace_roots") + "={" + strings.Join(entries, ",") + "}}"
+	filesystem := "{" + tomlString(":minimal") + "=" + tomlString("read") + ","
+	if codexDir != "" {
+		filesystem += tomlString(codexDir) + "=" + tomlString("read") + ","
+	}
+	filesystem += tomlString(":workspace_roots") + "={" + strings.Join(entries, ",") + "}}"
 	return []string{
 		"default_permissions=" + tomlString(profile),
 		"permissions." + profile + ".filesystem=" + filesystem,
@@ -244,4 +255,21 @@ func lookup(environ []string, name string) string {
 		}
 	}
 	return ""
+}
+
+// InstallDirectory returns the directory of codex's install for program,
+// the path of the codex that the adapter runs: the directory of the file
+// that the path resolves to, or the directory above it when that is a bin
+// directory, as in the npm package's native build, whose bundled bwrap is
+// in codex-resources beside bin.
+func InstallDirectory(program string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(program)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(resolved)
+	if filepath.Base(dir) == "bin" {
+		dir = filepath.Dir(dir)
+	}
+	return dir, nil
 }
