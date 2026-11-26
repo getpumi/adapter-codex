@@ -4,6 +4,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -74,10 +75,44 @@ func codexElsewhere(t *testing.T) string {
 			t.Fatal(err)
 		}
 		if err := os.Link(filepath.Join(install, filepath.FromSlash(f)), to); err != nil {
-			t.Fatalf("cannot link %s of codex's install %s into the test's directory: %v", f, install, err)
+			// A hard link cannot cross file systems, as from a home
+			// directory to a /tmp on tmpfs.
+			copyIn(t, install, elsewhere, f)
 		}
 	}
 	return filepath.Join(elsewhere, "bin", "codex")
+}
+
+// copyIn copies the executable file name, a slash-separated path, from the
+// directory from to the directory to, through os.Root (gosec G304).
+func copyIn(t *testing.T, from, to, name string) {
+	t.Helper()
+	src, err := os.OpenRoot(from)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = src.Close() }()
+	dst, err := os.OpenRoot(to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dst.Close() }()
+	in, err := src.Open(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := dst.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		t.Fatal(err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestTheSandboxLetsCommandsWriteExactWritePaths runs a command in the
