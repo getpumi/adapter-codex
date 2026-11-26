@@ -52,11 +52,15 @@ jobs:
     permissions: &check-permissions
       contents: read
       packages: read
-    container: &devcontainer
+    # Codex's sandbox (bubblewrap) makes a user namespace for each command,
+    # which Docker's default seccomp profile refuses in a container, so the
+    # conformance suite runs codex in a container without that profile.
+    container:
       image: ${{ needs.image.outputs.image }}
-      credentials:
+      credentials: &credentials
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+      options: --security-opt seccomp=unconfined
     steps:
       - *checkout
       - run: make test
@@ -73,7 +77,9 @@ jobs:
     needs: image
     runs-on: ubuntu-24.04
     permissions: *check-permissions
-    container: *devcontainer
+    container: &devcontainer
+      image: ${{ needs.image.outputs.image }}
+      credentials: *credentials
     steps:
       - *checkout
       - run: make lint
