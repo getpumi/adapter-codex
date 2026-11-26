@@ -26,8 +26,15 @@ var credentials = []string{
 	"CODEX_SQLITE_HOME",
 }
 
+// cacheVariable names the base directory of the caches of commands, such as
+// Go's build cache, in the XDG Base Directory Specification.
+const cacheVariable = "XDG_CACHE_HOME"
+
 // Env returns codex's environment: the adapter's environment without the
 // variable that carries the invocation token, which only the adapter sets.
+// With cache, the run's own cache directory, it points XDG_CACHE_HOME
+// there, so that commands in codex's sandbox write their caches there and
+// not to the person's (decision 0269).
 //
 // With a gateway, it also leaves out the person's own credentials and
 // provider settings, gives codex a home of its own, codexHome, so that it
@@ -36,17 +43,23 @@ var credentials = []string{
 // Without a gateway, on the sign-in path, codex keeps the person's own
 // home, sign-in and provider settings and talks to OpenAI directly
 // (decision 0240).
-func Env(environ []string, gw *harnessv1.Gateway, codexHome string) []string {
+func Env(environ []string, gw *harnessv1.Gateway, codexHome, cache string) []string {
 	cleared := []string{GatewayHeaderVariable}
 	if gw != nil {
 		cleared = append(cleared, credentials...)
 	}
-	env := make([]string, 0, len(environ)+2)
+	if cache != "" {
+		cleared = append(cleared, cacheVariable)
+	}
+	env := make([]string, 0, len(environ)+3)
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		if !slices.Contains(cleared, name) {
 			env = append(env, kv)
 		}
+	}
+	if cache != "" {
+		env = append(env, cacheVariable+"="+cache)
 	}
 	if gw == nil {
 		return env

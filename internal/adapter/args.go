@@ -42,6 +42,24 @@ type Files struct {
 	// Codex is the directory of codex's install, which codex's sandbox
 	// must read (InstallDirectory); empty for none.
 	Codex string
+	// Cache is the run's own cache directory, which the sandbox lets
+	// commands write and Env names in XDG_CACHE_HOME (decision 0269); empty
+	// for none.
+	Cache string
+}
+
+// Sandbox is what codex's sandbox lets commands reach outside the
+// workspace.
+type Sandbox struct {
+	// Codex is the directory of codex's install, which the sandbox must
+	// read (InstallDirectory); empty for none.
+	Codex string
+	// ReadPaths are the invocation's read paths, such as a toolchain,
+	// which the sandbox lets commands read (decision 0269).
+	ReadPaths []string
+	// Cache is the run's own cache directory, which the sandbox lets
+	// commands write (decision 0269); empty for none.
+	Cache string
 }
 
 // Args returns the arguments of codex for an invocation. codex exec reads
@@ -87,7 +105,7 @@ func Args(inv *harnessv1.Invocation, files Files, environ []string) ([]string, e
 	if files.Schema != "" {
 		args = append(args, "--output-schema", files.Schema)
 	}
-	config := Translate(inv.GetCapabilities(), files.Codex)
+	config := Translate(inv.GetCapabilities(), Sandbox{Codex: files.Codex, ReadPaths: inv.GetReadPaths(), Cache: files.Cache})
 	config = append(config, hookConfig(files.Hook), "web_search="+tomlString("disabled"))
 	config = append(config, quiet...)
 	if gw := inv.GetGateway(); gw != nil {
@@ -189,8 +207,8 @@ func hookConfig(command string) string {
 // refuses (Hook), and the runner's confinement check covers the rest.
 //
 //   - The profile lets codex and its commands read the system's minimal
-//     files, codex's own install, codexDir, and the workspace, and nothing
-//     else. Codex starts itself again inside its sandbox from its own
+//     files, codex's own install, the read paths of the invocation, such
+//     as a toolchain, and the workspace, and nothing else (decision 0269). Codex starts itself again inside its sandbox from its own
 //     path, which failed with "bwrap: execvp .../codex/bin/codex: No such
 //     file or directory" for a codex installed in the person's home, where
 //     the minimal files do not reach. Codex itself reads the
@@ -200,14 +218,17 @@ func hookConfig(command string) string {
 //     hook refuses without the read kind.
 //   - It lets them write the write paths, as sandboxWritePath gives them,
 //     when the list has the edit kind or the kind that runs commands, and
-//     nothing else: no temporary directory and no path outside the
-//     workspace.
+//     the run's own cache, which Env names in XDG_CACHE_HOME, so that a
+//     command such as go test can keep a build cache (decision 0269). It
+//     lets them write no other temporary directory and no other path
+//     outside the workspace.
 //   - Commands get no network: the model gateway is codex's, not theirs,
 //     and codex cannot limit them to the list's hosts.
 //   - Codex's shell tool is offered when the list has the kind that runs
 //     commands, or the edit kind, because with a model that codex has no
 //     metadata for its edits are apply_patch commands.
-func Translate(caps *harnessv1.Capabilities, codexDir string) []string {
+func Translate(caps *harnessv1.Capabilities, sandbox Sandbox) []string {
+	codexDir := sandbox.Codex
 	p := NewPolicy("", caps)
 	workspace := map[string]string{".": "read"}
 	if p.Edit || p.Run {
@@ -227,6 +248,12 @@ func Translate(caps *harnessv1.Capabilities, codexDir string) []string {
 	filesystem := "{" + tomlString(":minimal") + "=" + tomlString("read") + ","
 	if codexDir != "" {
 		filesystem += tomlString(codexDir) + "=" + tomlString("read") + ","
+	}
+	for _, r := range sandbox.ReadPaths {
+		filesystem += tomlString(r) + "=" + tomlString("read") + ","
+	}
+	if sandbox.Cache != "" {
+		filesystem += tomlString(sandbox.Cache) + "=" + tomlString("write") + ","
 	}
 	filesystem += tomlString(":workspace_roots") + "={" + strings.Join(entries, ",") + "}}"
 	return []string{
