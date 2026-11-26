@@ -1,13 +1,9 @@
 connectrpc.com/connect/v2 v2.0.2 h1:PoPDmOlhc46elsuCdKCKTxjNBb3HJlKF+s/sP2oucPw=
 connectrpc.com/connect/v2 v2.0.2/go.mod h1:N32OLrstcPUzkykFynnefFro3+xzSdOrZlK2jHmS/xo=
-getpumi.dev/pumi/api v0.0.0-20261126011027-b2747ad72a4e h1:P2lhnNymUufWhU4C9ChqqxRUbhRmFfkVPIL/4lUEZoE=
-getpumi.dev/pumi/api v0.0.0-20261126011027-b2747ad72a4e/go.mod h1:S91zGsvvTAKAVude5UQU4fDCwGcY8KzAQPjH0E3hf2U=
-getpumi.dev/pumi/api v0.0.0-20261126174819-3f85bb7264f2 h1:BtYTQnEbns4bX6nO3/ao7KAJ+xJJbgRpa6R2EzDf50U=
-getpumi.dev/pumi/api v0.0.0-20261126174819-3f85bb7264f2/go.mod h1:S91zGsvvTAKAVude5UQU4fDCwGcY8KzAQPjH0E3hf2U=
-getpumi.dev/pumi/conformance v0.0.0-20261126011027-b2747ad72a4e h1:PvDKJRK1+7AjRO71zi63kCN/eGVknuynQqOd+9XauZE=
-getpumi.dev/pumi/conformance v0.0.0-20261126011027-b2747ad72a4e/go.mod h1:IFSIaDxicAqD5WNJhTjJk0yfSSljaRazsjHF3wSlLQc=
-getpumi.dev/pumi/conformance v0.0.0-20261126174819-3f85bb7264f2 h1:AEl+t47XkIf1+F9TDKf7ItlvranDgsTC3V94IhuzU5g=
-getpumi.dev/pumi/conformance v0.0.0-20261126174819-3f85bb7264f2/go.mod h1:IFSIaDxicAqD5WNJhTjJk0yfSSljaRazsjHF3wSlLQc=
+getpumi.dev/pumi/api v0.0.0-20261126180919-a3b5ec8c08f7 h1:8pYcG/WFVJuR5hgxkRY07fpbtfLctZFO3z6Pa3WQHxQ=
+getpumi.dev/pumi/api v0.0.0-20261126180919-a3b5ec8c08f7/go.mod h1:S91zGsvvTAKAVude5UQU4fDCwGcY8KzAQPjH0E3hf2U=
+getpumi.dev/pumi/conformance v0.0.0-20261126180919-a3b5ec8c08f7 h1:Xz4IMCc8z1SvpzwuWJfmtrslGIZQnv9Zd+3zyCVotUo=
+getpumi.dev/pumi/conformance v0.0.0-20261126180919-a3b5ec8c08f7/go.mod h1:IFSIaDxicAqD5WNJhTjJk0yfSSljaRazsjHF3wSlLQc=
 github.com/google/go-cmp v0.7.0 h1:wk8382ETsv4JYUZwIsn6YpYiWiBsYLSJiTsyBybVuN8=
 github.com/google/go-cmp v0.7.0/go.mod h1:pXiqmnSA92OHEEa9HXL2W4E7lf9JzCmGVUdgjX3N/iU=
 google.golang.org/protobuf v1.36.12 h1:pJOKDDOyeXErUroCihFAd5LQuwXBSpVnKGrj5o/fwxc=
