@@ -127,7 +127,7 @@ func TestArgsRefusesInvocation(t *testing.T) {
 // TestTranslateWithoutAnInstallDirectory: with no directory of codex's
 // install, the profile names none.
 func TestTranslateWithoutAnInstallDirectory(t *testing.T) {
-	got := Translate(caps(harnessv1.Capabilities_TOOL_KIND_READ), "")
+	got := Translate(caps(harnessv1.Capabilities_TOOL_KIND_READ), Sandbox{})
 	if want := `permissions.pumi.filesystem={":minimal"="read",":workspace_roots"={"."="read"}}`; got[1] != want {
 		t.Errorf("Translate() profile = %q, want %q", got[1], want)
 	}
@@ -186,7 +186,7 @@ func TestTranslate(t *testing.T) {
 		"no write paths": {caps(edit), profile(`"."="read"`), true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := Translate(tc.caps, "/opt/codex")
+			got := Translate(tc.caps, Sandbox{Codex: "/opt/codex"})
 			want := []string{
 				`default_permissions="pumi"`,
 				tc.want,
@@ -197,5 +197,35 @@ func TestTranslate(t *testing.T) {
 				t.Errorf("Translate() =\n%q\nwant\n%q", got, want)
 			}
 		})
+	}
+}
+
+// TestTranslateLetsCommandsReadTheReadPathsAndWriteTheCache: the sandbox
+// lets commands read the invocation's read paths, such as a toolchain
+// outside the workspace, and write the run's own cache, and nothing else
+// outside the workspace (decision 0269).
+func TestTranslateLetsCommandsReadTheReadPathsAndWriteTheCache(t *testing.T) {
+	got := Translate(caps(harnessv1.Capabilities_TOOL_KIND_RUN_COMMANDS, "out/**"), Sandbox{
+		Codex: "/opt/codex", ReadPaths: []string{"/home/p/go", "/usr/lib/go"}, Cache: "/tmp/adapter-codex-1/cache",
+	})
+	want := `permissions.pumi.filesystem={":minimal"="read","/opt/codex"="read","/home/p/go"="read","/usr/lib/go"="read",` +
+		`"/tmp/adapter-codex-1/cache"="write",":workspace_roots"={"."="read","out/**"="write"}}`
+	if got[1] != want {
+		t.Errorf("Translate() profile =\n%s\nwant\n%s", got[1], want)
+	}
+}
+
+// TestArgsPassTheReadPathsAndTheCache: Args gives the sandbox the
+// invocation's read paths and the run's cache.
+func TestArgsPassTheReadPathsAndTheCache(t *testing.T) {
+	inv := invocation(caps(harnessv1.Capabilities_TOOL_KIND_RUN_COMMANDS))
+	inv.ReadPaths = []string{"/home/p/go"}
+	args, err := Args(inv, Files{Hook: "hook", Codex: "/opt/codex", Cache: "/run/cache"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `permissions.pumi.filesystem={":minimal"="read","/opt/codex"="read","/home/p/go"="read","/run/cache"="write",":workspace_roots"={"."="read"}}`
+	if config := configOf(args); !slices.Contains(config, want) {
+		t.Errorf("config %q does not hold %q", config, want)
 	}
 }

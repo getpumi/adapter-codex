@@ -51,12 +51,13 @@ func logVersion(ctx context.Context, path string, env []string, stderr io.Writer
 }
 
 // runDir is the adapter's directory for one run, outside the workspace:
-// the hook's policy and refusals, the output's JSON Schema and, on the API
-// key path, codex's home.
+// the hook's policy and refusals, the output's JSON Schema, the cache of
+// codex's commands and, on the API key path, codex's home.
 type runDir struct {
 	dir                      string
 	policy, refusals, schema string
 	codexHome                string
+	cache                    string
 }
 
 // newRunDir makes the run's directory and writes the policy and the schema.
@@ -80,6 +81,10 @@ func newRunDir(inv *harnessv1.Invocation) (*runDir, error) {
 		if err := os.WriteFile(d.schema, []byte(schema), 0o600); err != nil {
 			return d, err
 		}
+	}
+	d.cache = filepath.Join(dir, "cache")
+	if err := os.Mkdir(d.cache, 0o700); err != nil {
+		return d, err
 	}
 	if inv.GetGateway() != nil {
 		d.codexHome = filepath.Join(dir, "codex-home")
@@ -136,13 +141,13 @@ func runCodex(ctx context.Context, cfg Config, inv *harnessv1.Invocation, closed
 	// codex's standard error and the stream's notes both go to the log,
 	// from two goroutines of the command.
 	stderr = &syncWriter{w: stderr}
-	env := Env(os.Environ(), inv.GetGateway(), d.codexHome)
+	env := Env(os.Environ(), inv.GetGateway(), d.codexHome, d.cache)
 	install, err := InstallDirectory(path)
 	if err != nil {
 		logf(stderr, "cannot find codex's install: %v", err)
 		return failed(0), nil
 	}
-	args, err := Args(inv, Files{Hook: hookCommand(self, d.policy), Schema: d.schema, Codex: install}, os.Environ())
+	args, err := Args(inv, Files{Hook: hookCommand(self, d.policy), Schema: d.schema, Codex: install, Cache: d.cache}, os.Environ())
 	if err != nil {
 		return nil, err
 	}

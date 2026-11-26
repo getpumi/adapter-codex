@@ -144,7 +144,7 @@ func TestTheSandboxLetsCommandsWriteExactWritePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeIn(t, home, "config.toml", strings.Join(adapter.Translate(caps, dir), "\n")+"\n")
+	writeIn(t, home, "config.toml", strings.Join(adapter.Translate(caps, adapter.Sandbox{Codex: dir}), "\n")+"\n")
 	t.Setenv("PATH", filepath.Dir(codex)+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	cmd := exec.CommandContext(t.Context(), "codex", "sandbox", "--",
 		"sh", "-c", "echo new > src/a.txt && echo created > src/new.txt && echo top > TOP.md")
@@ -158,5 +158,54 @@ func TestTheSandboxLetsCommandsWriteExactWritePaths(t *testing.T) {
 		if got := readIn(t, ws, name); got != want {
 			t.Errorf("%s holds %q after the command, want %q", name, got, want)
 		}
+	}
+}
+
+// TestTheSandboxLetsCommandsReadTheReadPathsAndWriteTheCache runs commands
+// in the pinned codex's sandbox with the configuration and environment that
+// the adapter gives an invocation with a read path outside the workspace,
+// as a toolchain is: a command reads a file there but cannot write one, and
+// writes the run's own cache through XDG_CACHE_HOME, where Go keeps its
+// build cache. Go's go test failed in codex's sandbox when it could not
+// read ~/go (decision 0269).
+func TestTheSandboxLetsCommandsReadTheReadPathsAndWriteTheCache(t *testing.T) {
+	codex := codexElsewhere(t)
+	ws, toolchain, cache := t.TempDir(), t.TempDir(), t.TempDir()
+	gitInit := exec.CommandContext(t.Context(), "git", "init", "--quiet")
+	gitInit.Dir = ws
+	if out, err := gitInit.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	writeIn(t, toolchain, "bin/tool", "the toolchain\n")
+	caps := &harnessv1.Capabilities{
+		WritePaths: []string{"read.txt", "wrote.txt"},
+		Tools:      []harnessv1.Capabilities_ToolKind{harnessv1.Capabilities_TOOL_KIND_RUN_COMMANDS},
+	}
+	home := t.TempDir()
+	dir, err := adapter.InstallDirectory(codex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := adapter.Translate(caps, adapter.Sandbox{Codex: dir, ReadPaths: []string{toolchain}, Cache: cache})
+	writeIn(t, home, "config.toml", strings.Join(config, "\n")+"\n")
+	t.Setenv("PATH", filepath.Dir(codex)+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PUMI_TOOLCHAIN", toolchain)
+	cmd := exec.CommandContext(t.Context(), "codex", "sandbox", "--", "sh", "-c",
+		`cat "$PUMI_TOOLCHAIN/bin/tool" > read.txt && echo built > "$XDG_CACHE_HOME/entry" && `+
+			`if echo changed > "$PUMI_TOOLCHAIN/bin/tool"; then echo wrote > wrote.txt; fi`)
+	cmd.Dir = ws
+	cmd.Env = append(adapter.Env(os.Environ(), nil, "", cache), "CODEX_HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Errorf("codex sandbox: %v\n%s", err, out)
+	}
+	if got := readIn(t, ws, "read.txt"); got != "the toolchain\n" {
+		t.Errorf("the command read %q from the read path, want %q\n%s", got, "the toolchain\n", out)
+	}
+	if got := readIn(t, cache, "entry"); got != "built\n" {
+		t.Errorf("the cache holds %q, want %q\n%s", got, "built\n", out)
+	}
+	if got := readIn(t, toolchain, "bin/tool"); got != "the toolchain\n" || readIn(t, ws, "wrote.txt") != "" {
+		t.Errorf("the command wrote the read path, which holds %q", got)
 	}
 }
