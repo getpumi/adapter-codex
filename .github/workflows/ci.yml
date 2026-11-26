@@ -54,9 +54,10 @@ jobs:
       packages: read
     # Codex's sandbox (bubblewrap) makes a user namespace and mounts in it
     # for each command. In a container on ubuntu-24.04, Docker's default
-    # seccomp profile refuses the namespace, and without that profile
-    # AppArmor refuses the mounts, so the conformance suite runs codex in a
-    # privileged container. The runner is a virtual machine of its own.
+    # seccomp profile refuses the namespace, and without that profile the
+    # mounts are refused (most likely by AppArmor), so the conformance suite
+    # runs codex in a privileged container. The runner is a virtual machine
+    # of its own.
     container:
       image: ${{ needs.image.outputs.image }}
       credentials: &credentials
