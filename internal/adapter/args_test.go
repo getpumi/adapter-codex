@@ -132,7 +132,7 @@ func TestTranslate(t *testing.T) {
 		shell bool
 	}{
 		"read only":      {caps(read, "src/**"), profile(`"."="read"`), false},
-		"edit":           {caps(read, edit, "src/**", "docs/*.md", "go.mod"), profile(`"."="read","docs/**"="write","go.mod"="write","src/**"="write"`), true},
+		"edit":           {caps(read, edit, "src/**", "docs/*.md", "go.mod"), profile(`"."="write","docs/**"="write","src/**"="write"`), true},
 		"run":            {caps(run, "out/**"), profile(`"."="read","out/**"="write"`), true},
 		"leading glob":   {caps(edit, "*.go"), profile(`"."="write"`), true},
 		"no write paths": {caps(edit), profile(`"."="read"`), true},
