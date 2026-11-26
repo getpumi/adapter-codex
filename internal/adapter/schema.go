@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // codexSchema returns the invocation's JSON Schema in the form that the
@@ -20,7 +21,12 @@ import (
 // object of the schema lists all its properties in required, a property
 // that it did not require may also be null, which protojson reads as an
 // unset field, every object with properties is closed with
-// additionalProperties false, and default is left out.
+// additionalProperties false, and default is left out. A $ref may have no
+// sibling keyword ("$ref cannot have sibling keyword \"$id\" in strict
+// schemas"), so the definition that the root of a bundle refers to becomes
+// the root, a $ref keeps no sibling, and $id, $schema and the
+// patternProperties that match the protobuf field names, which protojson
+// also reads in their JSON names, are left out.
 func codexSchema(s string) (string, error) {
 	var root any
 	if err := json.Unmarshal([]byte(s), &root); err != nil {
@@ -32,6 +38,10 @@ func codexSchema(s string) (string, error) {
 	}
 	if t, ok := m["type"]; ok && t != "object" {
 		return "", fmt.Errorf("%w: its output schema has the type %v, not object", ErrInvocation, t)
+	}
+	m, err := inlineRoot(m)
+	if err != nil {
+		return "", fmt.Errorf("%w: its output schema: %w", ErrInvocation, err)
 	}
 	b, err := json.Marshal(strict(m))
 	if err != nil {
@@ -47,13 +57,47 @@ var (
 	listSchemas = []string{"anyOf", "oneOf", "allOf", "prefixItems"}
 )
 
+// inlineRoot returns the schema m with the definition that its root's $ref
+// names in $defs as the root, beside the same $defs, or m when its root
+// has no such $ref.
+func inlineRoot(m map[string]any) (map[string]any, error) {
+	ref, ok := m["$ref"].(string)
+	if !ok {
+		return m, nil
+	}
+	defs, _ := m["$defs"].(map[string]any)
+	name, ok := strings.CutPrefix(ref, "#/$defs/")
+	def, found := defs[name].(map[string]any)
+	if !ok || !found {
+		return nil, fmt.Errorf("its root refers to %q, which is not one of its $defs", ref)
+	}
+	b, err := json.Marshal(def)
+	if err != nil {
+		return nil, err
+	}
+	var root map[string]any
+	if err := json.Unmarshal(b, &root); err != nil {
+		return nil, err
+	}
+	root["$defs"] = defs
+	return root, nil
+}
+
+// dropped are the keywords that strict leaves out of every schema.
+var dropped = []string{"default", "$id", "$schema", "patternProperties"}
+
 // strict returns the schema s in the form of codexSchema. It changes s.
 func strict(s any) any {
 	m, ok := s.(map[string]any)
 	if !ok {
 		return s
 	}
-	delete(m, "default")
+	if ref, ok := m["$ref"]; ok {
+		return map[string]any{"$ref": ref}
+	}
+	for _, k := range dropped {
+		delete(m, k)
+	}
 	strictNested(m)
 	if props, ok := m["properties"].(map[string]any); ok {
 		closeObject(m, props)

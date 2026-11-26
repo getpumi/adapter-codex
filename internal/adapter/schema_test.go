@@ -38,7 +38,11 @@ const implementationOutput = `{
 // \"summary\"", answered with 400 on the API key path and on a ChatGPT
 // sign-in, getpumi/pumi#125). The adapter lists every property in
 // required, lets a property that the schema did not require be null, which
-// protojson reads as unset, closes every object and leaves out default.
+// protojson reads as unset, closes every object and leaves out default. A
+// $ref may have no sibling keyword in strict mode ("$ref cannot have
+// sibling keyword \"$id\" in strict schemas"), so the definition that the
+// root refers to becomes the root, and $id, $schema and the
+// patternProperties of the protobuf field names are left out.
 func TestTheOutputSchemaIsMadeStrict(t *testing.T) {
 	got, err := codexSchema(implementationOutput)
 	if err != nil {
@@ -47,7 +51,6 @@ func TestTheOutputSchemaIsMadeStrict(t *testing.T) {
 	want := `{
 	  "$defs": {
 	    "pumi.workflow.v1.ImplementationOutput.jsonschema.json": {
-	      "$schema": "https://json-schema.org/draft/2020-12/schema",
 	      "additionalProperties": false,
 	      "description": "ImplementationOutput is the structured output.",
 	      "properties": {
@@ -58,9 +61,14 @@ func TestTheOutputSchemaIsMadeStrict(t *testing.T) {
 	      "type": "object"
 	    }
 	  },
-	  "$id": "pumi.workflow.v1.ImplementationOutput.jsonschema.bundle.json",
-	  "$ref": "#/$defs/pumi.workflow.v1.ImplementationOutput.jsonschema.json",
-	  "$schema": "https://json-schema.org/draft/2020-12/schema"
+	  "additionalProperties": false,
+	  "description": "ImplementationOutput is the structured output.",
+	  "properties": {
+	    "summary": {"description": "What the change does.", "type": ["string", "null"]}
+	  },
+	  "required": ["summary"],
+	  "title": "Implementation Output",
+	  "type": "object"
 	}`
 	sameJSON(t, got, want)
 }
@@ -70,11 +78,13 @@ func TestAStrictSchemaKeepsWhatWasRequiredAndReachesNestedSchemas(t *testing.T) 
 	  "id": {"type": "string"},
 	  "kind": {"type": "string", "enum": ["a", "b"]},
 	  "count": {"anyOf": [{"type": "integer"}, {"type": "string", "pattern": "^[0-9]+$"}]},
-	  "child": {"$ref": "#/$defs/child"},
+	  "child": {"$ref": "#/$defs/child", "description": "The child."},
 	  "tags": {"type": "array", "items": {"type": "object", "properties": {"name": {"type": "string"}}}},
 	  "either": {"type": ["string", "integer"]}
 	}, "required": ["id"],
-	"$defs": {"child": {"type": "object", "properties": {"x": {"type": "boolean"}}, "additionalProperties": true}}}`
+	"$defs": {"child": {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object", "properties": {"x": {"type": "boolean"}}, "additionalProperties": true,
+	  "patternProperties": {"^(x_y)$": {"type": "boolean"}}}},
+	"$id": "a.json"}`
 	got, err := codexSchema(in)
 	if err != nil {
 		t.Fatal(err)
