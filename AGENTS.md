@@ -1,0 +1,41 @@
+<!--
+SPDX-License-Identifier: Apache-2.0
+SPDX-FileCopyrightText: The Pumi Authors
+-->
+
+# Instructions for agents
+
+Read this file before you change anything in this repository. It is harness-neutral: CLAUDE.md only imports it, so every agent reads the same rules ([0091](https://github.com/getpumi/design/blob/main/decisions/0091-agents-md.md)). People who work here follow the same rules.
+
+This repository is the Pumi harness adapter for the Codex CLI ([0242](https://github.com/getpumi/design/blob/main/decisions/0242-codex-is-the-second-harness.md)). The design lives in [getpumi/design](https://github.com/getpumi/design). Read its [decisions index](https://github.com/getpumi/design/blob/main/decisions/README.md) and the [runner protocol](https://github.com/getpumi/design/blob/main/components/runner-protocol.md) before you change the adapter; the adapter contract is decided in [0158](https://github.com/getpumi/design/blob/main/decisions/0158-harness-adapter-process.md) to [0160](https://github.com/getpumi/design/blob/main/decisions/0160-adapter-output-schema-and-result.md). A change to the code that changes the design needs a decision there first. Do not rely on anything you seem to remember.
+
+The rules of the core repository's [AGENTS.md](https://github.com/getpumi/pumi/blob/main/AGENTS.md) hold here too: starting only Ready work, test first, follow-up work, dependency updates alone, the merge rule, the SPDX lines, no TODO or FIXME comments, no `//nolint` comments and the commit trailers. This file lists only what differs.
+
+## Layout
+
+- One Go module, `getpumi.dev/adapter-codex`. It requires the core's `api` module, `getpumi.dev/pumi/api`, and its conformance module, `getpumi.dev/pumi/conformance`, at a pseudo-version of the same commit on getpumi/pumi's main until those modules have a release.
+- `cmd/adapter-codex` is the `main` package of the adapter. Run as `adapter-codex hook <policy file>`, it is codex's PreToolUse hook.
+- `internal/adapter` reads the invocation, translates the capability list into codex's permission profile and the hook's policy, runs `codex exec`, judges each tool call as the hook, passes the turn's usage from its events and writes the result.
+- `cmd/adapter-codex/conformance_test.go` runs the conformance suite of `getpumi.dev/pumi/conformance` against the adapter, which is the test binary started again, and the `codex` on the PATH, in both credential modes, and checks that it is the version pinned in `.devcontainer/install-tools.sh`.
+- `internal/checks` holds copies of the core's DCO, SPDX and nolint checks and the tests of the lint configuration, from getpumi/pumi at `11eb184`, with the import paths changed. The SPDX check lists no exempt path of the core.
+
+## Commands
+
+- `make build` compiles the module and writes the adapter to `bin/`.
+- `make test` runs `go test -race -shuffle=on -count=1 ./...` and writes a coverage profile to `coverage/`. The conformance tests run the real `codex` that the devcontainer pins against the suite's fake Responses provider, in an environment that holds only `PATH`, `TMPDIR`, `LANG` and `GOCOVERDIR` of the test's and a `HOME` and `CODEX_HOME` of their own.
+- `make lint`, `make dco RANGE=<base>..<head>`, `make spdx` and `make image` work as in the core repository. `make image` pushes to `ghcr.io/getpumi/adapter-codex-devcontainer`.
+
+The supported development environment is the repository's devcontainer, on Linux ([0087](https://github.com/getpumi/design/blob/main/decisions/0087-devcontainer-is-the-environment.md)).
+
+## Facts
+
+- Cloud threads only: getpumi.dev is blocked, and proxy.golang.org answers for `getpumi.dev/pumi/api` with a pseudo-version, such as `https://proxy.golang.org/getpumi.dev/pumi/api/@v/b2747ad72a4e.info`.
+- Cloud threads only: the golangci-lint on the PATH is an older release; download the version pinned in `.devcontainer/install-tools.sh` and check its SHA-256 before running `make lint` or `make test`.
+- Cloud threads only: OpenAI's hosts are blocked, so codex runs only against a local fake provider there; the npm registry works.
+- The npm package `@openai/codex` publishes the native build of each platform as the version `<version>-linux-<arch>`, such as `0.172.0-linux-x64`, with `codex` under `package/vendor/<target>`, and its SHA-512 integrity, in base64, at `https://registry.npmjs.org/@openai/codex/<version>-linux-<arch>`. Codex's sandbox (bubblewrap) could not start a `codex` kept under `/tmp` ("execvp codex: No such file"), so the devcontainer installs it under `/usr/local/lib/codex`.
+- Codex CLI 0.172.0 (checked on 2026-11-26): a permission profile, `default_permissions="pumi"` with `permissions.pumi.filesystem={":minimal"="read",":workspace_roots"={"."="read","src/**"="write"}}`, limits the writes of both apply_patch and commands to the paths given. An entry with write access takes only an exact path or one ending in `/**`; with another pattern codex fails with "only supports `deny` access". The profile also binds codex itself: with `"."="deny"` it failed with "failed to load AGENTS.md instructions ... Permission denied". `permissions.pumi.network.enabled=false` gives commands no network.
+- Codex CLI 0.172.0 (checked on 2026-11-26): a command rule (execpolicy) matches only literal words, with no pattern, and a command that an `allow` rule matches runs outside the sandbox; `--ignore-rules` leaves out the rules of the person's home. `approval_policy="untrusted"` is refused; the adapter sets `"never"`.
+- Codex CLI 0.172.0 (checked on 2026-11-26): `-c 'hooks.PreToolUse=[{matcher="",hooks=[{type="command",command="..."}]}]'` with `--dangerously-bypass-hook-trust` runs the command before every tool call of `codex exec`, with JSON on its standard input that holds `tool_name` (`Bash` for `exec_command`, and `apply_patch`) and `tool_input` (`command` for `Bash` and `apply_patch`). It refuses the call when the hook writes `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`, and lets the call go on when the hook exits with an error. With `--ignore-user-config`, a `hooks.json` in `CODEX_HOME` did not run, and a `.codex/hooks.json` and `.codex/config.toml` in the workspace were not read ("Untrusted project-local configuration is disabled").
+- Codex CLI 0.172.0 (checked on 2026-11-26): the tools it offers depend on the model's metadata; `codex debug models` lists the models it knows. For a name it does not know, such as `frontier`, it writes an `error` item, "Model metadata for `frontier` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.", to its `--json` events, runs on and offers `exec_command`, `write_stdin`, `view_image`, subagent and goal tools and the hosted `web_search`, but no apply_patch tool: a freeform `apply_patch` call gets "unsupported custom tool call: apply_patch", while an `apply_patch <<'EOF'` command through `exec_command` edits the files and is reported as a `file_change` item. `features.shell_tool=false` takes `exec_command` away. The hosted `web_search` reaches no hook; `web_search="disabled"` takes it away.
+- Codex CLI 0.172.0 (checked on 2026-11-26): with the built-in OpenAI provider, it ignores `OPENAI_BASE_URL` and sends nothing to it, and `-c openai_base_url=<url>` sends its calls there with `CODEX_API_KEY` as the bearer token; it tries a WebSocket for about 6 seconds before it streams over HTTP. A provider in `model_providers` takes `env_http_headers`, `request_max_retries`, `stream_max_retries` and `supports_websockets`.
+- Codex CLI 0.172.0 (checked on 2026-11-26): `turn.completed` holds `usage` with `input_tokens`, which includes `cached_input_tokens` and `cache_write_input_tokens`, and `output_tokens`, which includes `reasoning_output_tokens`. A 429 with a quota error ends the turn with `turn.failed` "Quota exceeded. Check your plan and billing details." and exit status 1.
