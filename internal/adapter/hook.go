@@ -103,6 +103,8 @@ type verdict struct {
 //     command, which codex carries out as its own edit;
 //   - a command when the list has the kind that runs commands and one of
 //     its entries allows it (decision 0248);
+//   - a command that only reads (readOnlyCommand) when the list has the
+//     read kind, because codex has no tool of its own that reads a file;
 //   - view_image, which reads a file, when the list has the read kind;
 //   - codex's tools that touch no file and no command, such as update_plan;
 //
@@ -167,6 +169,9 @@ func (p *Policy) judge(call toolCall) verdict {
 	case call.ToolName == "Bash":
 		if patch, ok := patchCommand(in.Command); ok {
 			return p.judgePatch(patch)
+		}
+		if p.Read && readOnlyCommand(in.Command) {
+			return verdict{}
 		}
 		if !p.Run || !commandAllowed(p.Commands, in.Command) {
 			return verdict{

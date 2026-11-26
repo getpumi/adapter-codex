@@ -72,3 +72,51 @@ func TestPatchCommand(t *testing.T) {
 		}
 	}
 }
+
+// TestReadOnlyCommand: with the read kind, codex, which has no tool that
+// reads a file, reads through commands that only read: a fixed list of
+// programs, alone or in a pipeline of them, without an option that writes
+// or runs another program, a redirect or a substitution (getpumi/pumi#125).
+func TestReadOnlyCommand(t *testing.T) {
+	for command, want := range map[string]bool{
+		"cat .pumi/plan.md":        true,
+		"sed -n '1,200p' a.go":     true,
+		"rg -n '^' .pumi/plan.md":  true,
+		"rg --files | head -50":    true,
+		"grep -rn foo src | wc -l": true,
+		"ls -la":                   true,
+		"find . -name '*.go'":      true,
+		"git status --short":       true,
+		"git diff HEAD -- a.go":    true,
+		"git log --oneline -5":     true,
+		"head -20 a.go":            true,
+		"tail -n 5 a.go":           true,
+		"nl -ba a.go":              true,
+		"pwd":                      true,
+		"cat a > b":                false,
+		"cat a; rm b":              false,
+		"cat a && rm b":            false,
+		"cat a || rm b":            false,
+		"cat $(echo a)":            false,
+		"cat a | sh":               false,
+		"rm a":                     false,
+		"sed -i 's/a/b/' a.go":     false,
+		"sed -n 'w out' a.go":      false,
+		"sed 's/a/b/' a.go":        false,
+		"find . -name a -delete":   false,
+		"find . -exec rm {} ;":     false,
+		"find . -fprint out":       false,
+		"rg --pre sh foo":          false,
+		"rg --pre=sh foo":          false,
+		"git checkout a.go":        false,
+		"git diff --output=out":    false,
+		"git -c core.pager=sh log": false,
+		"FOO=1 cat a":              false,
+		"cat a |":                  false,
+		"":                         false,
+	} {
+		if got := readOnlyCommand(command); got != want {
+			t.Errorf("readOnlyCommand(%q) = %v, want %v", command, got, want)
+		}
+	}
+}

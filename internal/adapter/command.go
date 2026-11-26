@@ -193,3 +193,120 @@ func patchCommand(command string) (string, bool) {
 	}
 	return "", false
 }
+
+// readOnlyCommand reports whether a command only reads, so that the hook
+// allows it with the read kind: codex has no tool of its own that reads a
+// file, and reads through its commands (getpumi/pumi#125). The command
+// must be one simple command of readers, or a pipeline of them joined with
+// "|", with no assignment, redirect or substitution, and no option that
+// writes a file or runs another program. The sandbox still limits what any
+// command writes to the write paths (Translate).
+func readOnlyCommand(command string) bool {
+	parts, ok := pipeline(command)
+	if !ok {
+		return false
+	}
+	for _, part := range parts {
+		assigned, words, ok := simpleCommand(part)
+		if !ok || len(assigned) > 0 || len(words) == 0 {
+			return false
+		}
+		if judge, ok := readers[words[0]]; !ok || !judge(words[1:]) {
+			return false
+		}
+	}
+	return true
+}
+
+// pipeline splits a command at each "|" outside quotes and reports false
+// for "||" or an empty part.
+func pipeline(command string) ([]string, bool) {
+	var parts []string
+	var skipped strings.Builder
+	start := 0
+	for i := 0; i < len(command); i++ {
+		switch c := command[i]; {
+		case c == '\\' || c == '\'' || c == '"':
+			end, ok := quotedPart(command, i, &skipped)
+			if !ok {
+				return nil, false
+			}
+			i = end
+		case c == '|' && strings.HasPrefix(command[i+1:], "|"):
+			return nil, false
+		case c == '|':
+			parts = append(parts, command[start:i])
+			start = i + 1
+		}
+	}
+	parts = append(parts, command[start:])
+	for _, p := range parts {
+		if strings.TrimSpace(p) == "" {
+			return nil, false
+		}
+	}
+	return parts, true
+}
+
+// readers are the programs that readOnlyCommand allows, each with a judge
+// of its arguments.
+var readers = map[string]func(args []string) bool{
+	"cat": anyArgs, "head": anyArgs, "tail": anyArgs, "ls": anyArgs, "wc": anyArgs,
+	"nl": anyArgs, "pwd": anyArgs, "grep": anyArgs, "file": anyArgs, "stat": anyArgs,
+	"rg":   noneOf("--pre", "-z", "--search-zip"),
+	"find": noneOf("-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"),
+	"sed":  sedPrints,
+	"git":  gitReads,
+}
+
+func anyArgs([]string) bool { return true }
+
+// noneOf returns a judge that refuses each of the options, also in the form
+// option=value.
+func noneOf(options ...string) func([]string) bool {
+	return func(args []string) bool {
+		for _, a := range args {
+			name, _, _ := strings.Cut(a, "=")
+			if slices.Contains(options, name) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+// sedScript matches a sed script that prints lines by number, such as
+// "1,200p" or "$p".
+var sedScript = regexp.MustCompile(`^(\d+|\$)?(,(\d+|\$))?p$`)
+
+// sedPrints allows sed -n with one script that prints lines by number, and
+// files.
+func sedPrints(args []string) bool {
+	quiet, script := false, false
+	for _, a := range args {
+		switch {
+		case a == "-n":
+			quiet = true
+		case strings.HasPrefix(a, "-"):
+			return false
+		case !script:
+			if !sedScript.MatchString(a) {
+				return false
+			}
+			script = true
+		}
+	}
+	return quiet && script
+}
+
+// gitReading are the git commands that gitReads allows.
+var gitReading = []string{"status", "diff", "log", "show", "ls-files", "grep", "rev-parse", "blame"}
+
+// gitReads allows a git command that only reads, with no option that
+// writes its output to a file or runs an external diff.
+func gitReads(args []string) bool {
+	if len(args) == 0 || !slices.Contains(gitReading, args[0]) {
+		return false
+	}
+	return noneOf("--output", "--ext-diff", "-O", "--open-files-in-pager")(args[1:])
+}
