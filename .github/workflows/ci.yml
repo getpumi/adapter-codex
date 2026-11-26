@@ -52,15 +52,17 @@ jobs:
     permissions: &check-permissions
       contents: read
       packages: read
-    # Codex's sandbox (bubblewrap) makes a user namespace for each command,
-    # which Docker's default seccomp profile refuses in a container, so the
-    # conformance suite runs codex in a container without that profile.
+    # Codex's sandbox (bubblewrap) makes a user namespace and mounts in it
+    # for each command. In a container on ubuntu-24.04, Docker's default
+    # seccomp profile refuses the namespace, and without that profile
+    # AppArmor refuses the mounts, so the conformance suite runs codex in a
+    # privileged container. The runner is a virtual machine of its own.
     container:
       image: ${{ needs.image.outputs.image }}
       credentials: &credentials
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-      options: --security-opt seccomp=unconfined
+      options: --privileged
     steps:
       - *checkout
       - run: make test
